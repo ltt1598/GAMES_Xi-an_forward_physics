@@ -5,9 +5,10 @@ ti.init(arch=ti.cpu)
 
 # global control
 paused = ti.field(ti.i32, ())
-damping_toggle = ti.field(ti.i32, ())
+draw_grid = ti.field(ti.i32, ())
 curser = ti.Vector.field(2, ti.f32, ())
 picking = ti.field(ti.i32,())
+damping_toggle = ti.field(ti.i32, ())
 
 # procedurally setting up the cantilever
 init_x, init_y = 0.1, 0.6
@@ -18,9 +19,10 @@ N_edges = (N_x-1)*N_y + N_x*(N_y - 1) + (N_x-1) * \
     (N_y-1)  # horizontal + vertical + diagonal springs
 N_triangles = 2 * (N_x-1) * (N_y-1)
 N_grid = 32
+dx_meshing = 1/32
 dx = 1 / N_grid
 inv_dx = 1 / dx
-curser_radius = dx/2
+curser_radius = dx_meshing/2
 
 grid_buffer = 1
 
@@ -105,7 +107,7 @@ def initialize():
     for i in range(N_x):
         for j in range(N_y):
             index = ij_2_index(i, j)
-            x[index] = [init_x + i * dx, init_y + j * dx]
+            x[index] = [init_x + i * dx_meshing, init_y + j * dx_meshing]
             v[index].fill(0)
 
 @ti.func
@@ -202,49 +204,32 @@ def grid_op():
             grid_v[i, j] = inv_m * grid_v[i, j] # convert from momentum to velocity
             grid_v[i, j].y -= dh * g # advect with external force
 
-            # wall
-            dist = i * dx - init_x
-            if dist <= 0:
-                grid_v[i, j].x = 0
-                grid_v[i, j].y = 0
 
-            # box
-            if i < grid_buffer and grid_v[i, j].x < 0:
-                grid_v[i, j].x = 0
-            if i > N_grid - grid_buffer and grid_v[i, j].x > 0:
-                grid_v[i, j].x = 0
-            if j < grid_buffer and grid_v[i, j].y < 0:
-                grid_v[i, j].y = 0
-            if j > N_grid - grid_buffer and grid_v[i, j].y > 0:
-                grid_v[i, j].y = 0
 
-@ti.kernel
-def update():
-    # perform time integration
-    for i in range(N):
-        # symplectic integration
-        acc = -grad[i]/m - [0, g]
-        v[i] += dh*acc
-        x[i] += dh*v[i]
+    # particles attached to the wall
+    for jj in range(N_y):
+        p_w = ij_2_index(0, jj)
+        base = ti.cast(x[p_w] * inv_dx - 0.5, ti.i32)
+        for i in ti.static(range(3)):
+            for j in ti.static(range(3)): 
+                I = ti.Vector([i, j])
+                grid_v[base + I].fill(0)
 
-    # enforce boundary condition
+    # particles picked by user
     if picking[None]:
-        for i in range(N):
-            r = x[i]-curser[None]
+        for p in range(N):
+            r = x[p]-curser[None]
             if r.norm() < curser_radius:
-                x[i] = curser[None]
-                v[i].fill(0)
-                pass
+                base = ti.cast(x[p] * inv_dx - 0.5, ti.i32)
+                for i in ti.static(range(3)):
+                    for j in ti.static(range(3)): 
+                        I = ti.Vector([i, j])
+                        grid_v[base + I] = -r / dh  
 
-    for j in range(N_y):
-        ind = ij_2_index(0, j)
-        v[ind] = [0, 0]
-        x[ind] = [init_x, init_y + j * dx]  # rest pose attached to the wall
-
-    for i in range(N):
-        if x[i].x < init_x:
-            x[i].x = init_x
-            v[i].x = 0
+    for i, j in grid_m:
+        if damping_toggle[None]:
+            grid_v[i, j]*=ti.exp(-dh*4)
+               
 
 @ti.kernel
 def updateLameCoeff():
@@ -286,12 +271,18 @@ while gui.running:
                 PoissonsRatio[None] = 0
         elif e.key == ti.GUI.SPACE:
             paused[None] = not paused[None]
+        elif e.key =='g' or e.key == 'G':
+            draw_grid[None] = not draw_grid[None]
         elif e.key =='d' or e.key == 'D':
             damping_toggle[None] = not damping_toggle[None]
         elif e.key =='p' or e.key == 'P': # step-forward
             for i in range(substepping):
-                compute_gradient()
-                update()
+                grid_m.fill(0)
+            grid_v.fill(0)
+            compute_gradient()
+            p2g()
+            grid_op()
+            g2p()
         updateLameCoeff()
 
     if gui.is_pressed(ti.GUI.LMB):
@@ -308,6 +299,19 @@ while gui.running:
             grid_op()
             g2p()
 
+    # show grid
+    if draw_grid[None]:
+        for i in range(N_grid):
+            gui.line((0.0, i/N_grid),
+                    (1.0, i/N_grid),
+                    radius=1,
+                    color=0x888888)
+        for i in range(N_grid):
+            gui.line((i/N_grid, 0.0),
+                    (i/N_grid, 1.0),
+                    radius=1,
+                    color=0x888888)
+
     # render
     pos = x.to_numpy()
     for i in range(N_edges):
@@ -323,9 +327,12 @@ while gui.running:
 
     # text
     gui.text(
+        content=f'G:show/hide grid: {draw_grid[None]:d}', pos=(0.6, 0.925), color=0xFFFFFF)
+    gui.text(
         content=f'9/0: (-/+) Young\'s Modulus {YoungsModulus[None]:.1f}', pos=(0.6, 0.9), color=0xFFFFFF)
     gui.text(
         content=f'7/8: (-/+) Poisson\'s Ratio {PoissonsRatio[None]:.3f}', pos=(0.6, 0.875), color=0xFFFFFF)
     gui.text(
         content=f'D: Damping: {damping_toggle[None]:d}', pos=(0.6, 0.85), color=0xFFFFFF)
+
     gui.show()

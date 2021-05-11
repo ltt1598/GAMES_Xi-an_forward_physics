@@ -179,9 +179,9 @@ def update():
         x[i] += dh*v[i]
 
     # explicit damping (ether drag)
-    if damping_toggle:
+    if damping_toggle[None]:
         for i in range(N):
-            v[i] *= ti.exp(-dh*10)
+            v[i] *= ti.exp(-dh*4)
 
     # enforce boundary condition
     if picking[None]:
@@ -190,7 +190,7 @@ def update():
             if r.norm() < curser_radius:
                 x[i] = curser[None]
                 v[i].fill(0)
-                pass
+                break
 
     for j in range(N_y):
         ind = ij_2_index(0, j)
