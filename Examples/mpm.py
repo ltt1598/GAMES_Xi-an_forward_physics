@@ -18,7 +18,7 @@ N = N_x*N_y
 N_edges = (N_x-1)*N_y + N_x*(N_y - 1) + (N_x-1) * \
     (N_y-1)  # horizontal + vertical + diagonal springs
 N_triangles = 2 * (N_x-1) * (N_y-1)
-N_grid = 32
+N_grid = 20
 dx_meshing = 1/32
 dx = 1 / N_grid
 inv_dx = 1 / dx
@@ -168,8 +168,7 @@ def p2g():
                 I = ti.Vector([i, j])
                 dpos = (float(I) - fx) * dx
                 weight = w[i].x * w[j].y
-                grid_v[base + I] += weight * (m * v[p] - grad[p]*dh +
-                                              affine @ dpos)
+                grid_v[base + I] += weight * (m * v[p] - grad[p]*dh + affine @ dpos) #APIC
                 grid_m[base + I] += weight * m
 
 @ti.kernel
@@ -189,7 +188,7 @@ def g2p():
                 g_v = grid_v[base + I]
                 weight = w[i].x * w[j].y
                 new_v += weight * g_v
-                new_C += 4 * weight * g_v.outer_product(dpos) * inv_dx
+                new_C += 4 * weight * g_v.outer_product(dpos) * inv_dx #APIC
 
         # symplectic integration
         v[p] = new_v
@@ -204,17 +203,6 @@ def grid_op():
             grid_v[i, j] = inv_m * grid_v[i, j] # convert from momentum to velocity
             grid_v[i, j].y -= dh * g # advect with external force
 
-
-
-    # particles attached to the wall
-    for jj in range(N_y):
-        p_w = ij_2_index(0, jj)
-        base = ti.cast(x[p_w] * inv_dx - 0.5, ti.i32)
-        for i in ti.static(range(3)):
-            for j in ti.static(range(3)): 
-                I = ti.Vector([i, j])
-                grid_v[base + I].fill(0)
-
     # particles picked by user
     if picking[None]:
         for p in range(N):
@@ -226,10 +214,19 @@ def grid_op():
                         I = ti.Vector([i, j])
                         grid_v[base + I] = -r / dh  
 
-    for i, j in grid_m:
-        if damping_toggle[None]:
-            grid_v[i, j]*=ti.exp(-dh*4)
-               
+    if damping_toggle[None]:
+        for i in range(N_grid):
+            for j in range(N_grid):
+                grid_v[i, j]*=ti.exp(-dh*4)
+
+    # particles attached to the wall
+    for jj in range(N_y):
+        p_w = ij_2_index(0, jj)
+        base = ti.cast(x[p_w] * inv_dx - 0.5, ti.i32)
+        for i in ti.static(range(3)):
+            for j in ti.static(range(3)): 
+                I = ti.Vector([i, j])
+                grid_v[base + I].fill(0)              
 
 @ti.kernel
 def updateLameCoeff():
