@@ -12,7 +12,7 @@ picking = ti.field(ti.i32,())
 # integration method
 # 1: explicit euler
 # 2: symplectic euler
-# 3: (semi-)implicit euler
+# 3: implicit euler
 integration = 2
 
 # procedurally setting up the cantilever
@@ -44,15 +44,7 @@ dh = h/substepping
 x = ti.Vector.field(2, ti.f32, N)
 v = ti.Vector.field(2, ti.f32, N)
 grad = ti.Vector.field(2, ti.f32, N)
-Hess = ti.Matrix.field(2,2,ti.f32,(N,N)) # NxN dense matrix, ouch
 spring_length = ti.field(ti.f32, N_edges)
-
-# temp variables for cg
-cg_b = ti.Vector.field(2, ti.f32, N)
-cg_r = ti.Vector.field(2, ti.f32, N)
-cg_d = ti.Vector.field(2, ti.f32, N)
-cg_q = ti.Vector.field(2, ti.f32, N)
-cg_A = ti.Matrix.field(2,2,ti.f32,(N,N)) 
 
 # geometric components
 triangles = ti.Vector.field(3, ti.i32, N_triangles)
@@ -122,19 +114,6 @@ def initialize_springs():
         spring_length[i] = r.norm()
 
 # ----------------------core-----------------------------
-@ti.func #Ax = A*x
-def multiplication(Ax, A, x, n):
-    for i in range(n):
-        Ax[i].fill(0.0)
-        for j in range(n):
-            Ax[i] += A[i,j]@x[j]
-@ti.func
-def dot_product(a,b,n):
-    res = 0.0
-    for i in range(n):
-        res += a[i].dot(b[i])
-    return res
-
 @ti.kernel
 def compute_gradient():
     # clear gradient
@@ -153,28 +132,6 @@ def compute_gradient():
         grad[b] += -gradient
 
 @ti.kernel
-def compute_hessian():
-    #clear hessian
-    for i in range(N_edges):
-        for j in range(N_edges):
-            Hess[i,j].fill(0.0)
-
-    eye = ti.Matrix.cols([[1.0, 0.0], [0.0, 1.0]])
-    # hessian of elastic potential
-    for i in range(N_edges):
-        a, b = edges[i][0], edges[i][1]
-        r = x[a]-x[b]
-        l = r.norm()
-        l0 = spring_length[i]
-        k = YoungsModulus[None]*l0  # stiffness in Hooke's law
-        rrt = ti.Matrix.cols([[r.x*r.x, r.x*r.y], [r.y*r.x, r.y*r.y]])
-        K = k*(eye-l0/l*(eye-rrt))
-        Hess[a, a] += K
-        Hess[a, b] -= K
-        Hess[b, a] -= K
-        Hess[b, b] += K
-
-@ti.kernel
 def update():
     # perform time integration
     if integration == 1:
@@ -191,56 +148,8 @@ def update():
             acc = -grad[i]/m - [0.0, g]
             v[i] += dh*acc
             x[i] += dh*v[i]
-    elif integration == 3:
-        #(semi-)implicit euler
-        # v1 = v0 + h*M^-1*f
-        for i in range(N):
-            acc = -grad[i]/m - [0.0, g]
-            v[i] += dh*acc
-
-        # (M+h^2Hess) * v2 = M*v1
-        # construct A and b, init v2 = 0
-        for i in range(N):
-            for j in range(N):
-                cg_A[i,j]=Hess[i,j]*dh*dh
-                if i==j:
-                    cg_A[i,j][0,0] += m*1.0
-                    cg_A[i,j][1,1] += m*1.0
-            cg_b[i] = m*v[i]
-            v[i].fill(0.0)
-
-        # solve for A * v2 = b using conjugate gradient
-        it, max_it = 0,100
-        #r = b-Ax, d=r
-        multiplication(cg_r, cg_A, v, N)
-        for i in range(N):
-            cg_r[i] = cg_b[i] - cg_r[i]
-            cg_d[i] = cg_r[i]
-        #delta = r^T * r
-        delta_new = dot_product(cg_r, cg_r, N)
-        delta_0 = delta_new 
-        while it < max_it and delta_new/delta_0 > 1e-8:
-            # q = A*d
-            multiplication(cg_q, cg_A, cg_d, N)
-            # alpha = delta / d^T A d
-            alpha = delta_new / (dot_product(cg_d, cg_q, N))
-            # v = v + alpha d, r = r - alpha q
-            for i in range(N):
-                v[i] += alpha * cg_d[i]
-                cg_r[i] -= alpha * cg_q[i] # r = b-Ax or r = r - alpha r (equivalent if no numerical error)
-
-            delta_old = delta_new 
-            # delta_new = r^T * r
-            delta_new = dot_product(cg_r, cg_r, N)
-            beta = delta_new / delta_old
-            # d = r + beta * d
-            for i in range(N):
-                cg_d[i] = cg_r[i] + beta * cg_d[i]
-            it += 1
-
-        # update position x+=h*v2
-        for i in range(N):
-            x[i] += dh*v[i]
+    # elif integration == 3:
+    #     # TODO
 
     # explicit damping (ether drag)
     if damping_toggle:
@@ -294,8 +203,6 @@ while gui.running:
         elif e.key == 'p' or e.key == 'P':
             for i in range(substepping):
                 compute_gradient()
-                if integration == 3:
-                    compute_hessian()
                 update()           
 
     if gui.is_pressed(ti.GUI.LMB):
@@ -306,8 +213,6 @@ while gui.running:
     if not paused[None]:
         for i in range(substepping):
             compute_gradient()
-            if integration == 3:
-                compute_hessian()
             update()
 
     # render

@@ -190,10 +190,11 @@ def g2p():
                 new_v += weight * g_v
                 new_C += 4 * weight * g_v.outer_product(dpos) * inv_dx #APIC
 
-        # symplectic integration
+        C[p] = new_C # affine transformation matrix for particle p
+
+        # symplectic integration for particles
         v[p] = new_v
         x[p] += dh * v[p]
-        C[p] = new_C
 
 @ti.kernel
 def grid_op():

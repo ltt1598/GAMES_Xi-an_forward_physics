@@ -67,24 +67,22 @@ def compute_force():
     for i in range(N):
         p = pos[i]
         for j in range(N):
-            # if i > j: # bad memory footprint
-            #     r = p-pos[j]
-            #     r_length = r.norm(1e-5)
-            #     r_reciprocal = 1.0/r_length
+            # if i > j: # bad memory footprint and load balance
+            #     diff = p-pos[j]
+            #     r = diff.norm(1e-5)
 
-            #     # gravitational force -(GMm / r_length^2) * (r/r_length) for i
-            #     f = -G * m * m * r_reciprocal**3 * r
+            #     # gravitational force -(GMm / r^2) * (diff/r) for i
+            #     f = -G * m * m * (1.0/r)**3 * diff
 
             #     # assign to each particle
             #     force[i] += f
             #     force[j] += -f
-            if i != j: # double the computation for a better memory footprint
-                r = p-pos[j]
-                r_length = r.norm(1e-5)
-                r_reciprocal = 1.0/r_length
+            if i != j: # double the computation for a better memory footprint and load balance
+                diff = p-pos[j]
+                r = diff.norm(1e-5)
 
-                # gravitational force -(GMm / r_length^2) * (r/r_length) for i
-                f = -G * m * m * r_reciprocal**3 * r
+                # gravitational force -(GMm / r^2) * (diff/r) for i
+                f = -G * m * m * (1.0/r)**3 * diff
 
                 # assign to each particle
                 force[i] += f
