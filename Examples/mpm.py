@@ -12,7 +12,7 @@ damping_toggle = ti.field(ti.i32, ())
 
 # procedurally setting up the cantilever
 init_x, init_y = 0.1, 0.6
-N_x = 20
+N_x = 32
 N_y = 4
 N = N_x*N_y
 N_edges = (N_x-1)*N_y + N_x*(N_y - 1) + (N_x-1) * \

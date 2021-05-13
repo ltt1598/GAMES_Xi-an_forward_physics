@@ -12,7 +12,7 @@ picking = ti.field(ti.i32,())
 # integration method
 # 1: explicit euler
 # 2: symplectic euler
-# 3: implicit euler
+# 3: implicit euler (you bet)
 integration = 2
 
 # procedurally setting up the cantilever
