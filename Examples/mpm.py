@@ -12,7 +12,7 @@ damping_toggle = ti.field(ti.i32, ())
 
 # procedurally setting up the cantilever
 init_x, init_y = 0.1, 0.6
-N_x = 32
+N_x = 20
 N_y = 4
 N = N_x*N_y
 N_edges = (N_x-1)*N_y + N_x*(N_y - 1) + (N_x-1) * \
@@ -169,6 +169,7 @@ def p2g():
                 dpos = (float(I) - fx) * dx
                 weight = w[i].x * w[j].y
                 grid_v[base + I] += weight * (m * v[p] - grad[p]*dh + affine @ dpos) #APIC
+                # grid_v[base + I] += weight * (m * v[p] - grad[p]*dh) #comment the last line and use this line to try PIC!
                 grid_m[base + I] += weight * m
 
 @ti.kernel
@@ -242,7 +243,7 @@ initialize()
 initialize_elements()
 updateLameCoeff()
 
-gui = ti.GUI('Linear FEM', (800, 800))
+gui = ti.GUI('MPM, lagragian force', (800, 800))
 while gui.running:
 
     picking[None]=0
